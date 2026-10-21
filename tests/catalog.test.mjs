@@ -248,9 +248,29 @@ describe('buildEntries', () => {
     assert.deepEqual(routes.openai[0].input, ['text'])
   })
 
-  it('offers standard effort conventions when asked without inventing xhigh/max support', () => {
-    const { routes } = buildEntries({ apiList, catalog, plan: 'goat', includeReasoningEfforts: true })
-    assert.deepEqual(routes.openai[0].reasoningEfforts, { off: null, low: 'low', medium: 'medium', high: 'high' })
+  it('writes the effort ladder the reference states for each model', () => {
+    // DeepSeek V4 Pro really is `off/high/max` — no low, no medium, no xhigh.
+    // The gateway answers 200 to all of them and clamps, so only the reference
+    // can say which rungs a model actually has.
+    const { routes } = buildEntries({
+      apiList,
+      catalog,
+      plan: 'goat',
+      effortLevels: { 'vendor/model-one': ['off', 'high', 'max'] },
+    })
+    assert.deepEqual(routes.openai[0].reasoningEfforts, { off: 'off', high: 'high', max: 'max' })
+  })
+
+  it('declares no effort control for a model the reference marks as having none', () => {
+    // "—" in the reference means the model exposes no effort selector. Omitting
+    // the field says that; `false` would claim the model cannot think.
+    const { routes } = buildEntries({ apiList, catalog, plan: 'goat', effortLevels: { 'vendor/model-one': [] } })
+    assert.equal('reasoningEfforts' in routes.openai[0], false)
+  })
+
+  it('keeps the protocol convention for a model the reference does not describe', () => {
+    const { routes } = buildEntries({ apiList, catalog, plan: 'goat', effortLevels: {} })
+    assert.deepEqual(routes.openai[0].reasoningEfforts, { off: null, medium: 'medium' })
   })
 
   it('marks a model the vendor has put on a deal, in its name', () => {

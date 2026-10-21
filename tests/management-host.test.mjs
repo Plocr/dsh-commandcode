@@ -55,6 +55,9 @@ async function upstream(task, { list = () => models, credits } = {}) {
   const previous = fetch, calls = []
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init })
+    // The effort reference is the third upstream fact a sync reads; it states a
+    // ladder per model, and the gateway cannot answer this itself.
+    if (String(url).endsWith('models.md')) return { ok: true, status: 200, text: async () => '| `vendor/a` | A | 1M | off, high, max | $1 | Go | b |\n| `vendor/b` | B | 1M | — | $1 | Go | b |\n' }
     if (String(url).includes('/models')) return { ok: true, json: async () => ({ data: list() }) }
     if (String(url).includes('/docs/')) {
       const escaped = JSON.stringify(entries).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -79,7 +82,9 @@ describe('0.8 management host actions', () => {
       assert.equal(host.providers['commandcode-goat-autosync'].models[0].reasoningEfforts, false)
       await host.call('/manage', { action: 'preference', id: 'vendor/a', preference: { reasoningPreset: 'auto' } })
       await host.call('/sync')
-      assert.deepEqual(host.providers['commandcode-goat-autosync'].models[0].reasoningEfforts, { off: null, medium: 'medium' })
+      // Back to `auto`: the ladder the reference states for this model, which is
+      // what the sync generates when no preference overrides it.
+      assert.deepEqual(host.providers['commandcode-goat-autosync'].models[0].reasoningEfforts, { off: 'off', high: 'high', max: 'max' })
       const state = await host.call('/manage', { action: 'state' })
       assert.deepEqual(state.value.notifications.filter((event) => event.type === 'model'), [])
     })
@@ -140,7 +145,9 @@ describe('0.8 management host actions', () => {
       assert.equal(synced.ok, true)
       const published = host.providers['commandcode-goat-autosync'].models
       assert.equal(published.length, 1)
-      assert.deepEqual(published[0].reasoningEfforts, { off: null, high: 'high' })
+      // `deep` is the model's own top rung: its ladder stops at `max`, so a
+      // hard-coded "high" would have picked a level the reference never states.
+      assert.deepEqual(published[0].reasoningEfforts, { off: 'off', max: 'max' })
       assert.equal(calls.some((call) => /chat\/completions|messages$|responses$/.test(call.url)), false)
       const state = await host.call('/manage', { action: 'state' })
       assert.equal(state.value.models.length, 2)

@@ -1472,12 +1472,13 @@ describe('rendering', () => {
       const ids = labels.map((node) => node.props.htmlFor)
       assert.ok(ids.length >= 6, 'every advanced field has a real label')
       for (const id of ids) assert.match(id, /^ccg-field-/)
-      // The extra-ids sentence describes the extra-ids box, so it sits under it
-      // rather than under all six fields as a section footnote.
-      const extra = findByClass(tree, 'ccg-fieldHint')
-      assert.equal(extra.length, 1)
-      assert.equal(extra[0].props.id, 'ccg-field-extraIds-hint')
-      assert.match(textOf(extra[0]).join(''), /逗号或换行分隔/)
+      // Each field that carries a sentence carries its own; the extra-ids hint
+      // is still attached to the extra-ids box rather than floating as a
+      // section footnote.
+      const hints = findByClass(tree, 'ccg-fieldHint')
+      assert.deepEqual(hints.map((node) => node.props.id).sort(), ['ccg-field-effortSourceURL-hint', 'ccg-field-extraIds-hint'])
+      const extra = hints.find((node) => node.props.id === 'ccg-field-extraIds-hint')
+      assert.match(textOf(extra).join(''), /逗号或换行分隔/)
       assert.equal(labels.find((node) => node.props.htmlFor === 'ccg-field-extraIds').props.children, '额外模型 ID')
     } finally {
       useStateValues = []
@@ -1629,9 +1630,8 @@ describe('rendering', () => {
 
       // one switch per boolean field, each carrying its own accessible name
       const switches = findAll(tree, 'x-switch')
-      assert.equal(switches.length, 5)
+      assert.equal(switches.length, 4)
       assert.deepEqual(switches.map((node) => node.props.label).sort(), [
-        '为推理模型写入思考档位',
         '切档后清理其他档位的路由',
         '注册 commandcode_usage 工具',
         '用本账户提供 web_search',

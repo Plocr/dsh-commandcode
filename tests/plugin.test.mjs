@@ -254,6 +254,14 @@ const CATALOG_ENTRIES = [
   { slug: 'model-one', id: 'vendor/model-one', name: 'Model One', vendor: 'Vendor', contextWindow: 200000, reasoning: true, vision: true, minPlanName: 'Go' },
   { slug: 'claude-sonnet-5', id: 'claude-sonnet-5', name: 'Claude Sonnet 5', vendor: 'Anthropic', contextWindow: 1000000, reasoning: true, vision: true, minPlanName: 'Pro' },
 ]
+/**
+ * The effort reference, reduced to the rows these fixtures name. Its ladders are
+ * deliberately uneven: `vendor/model-one` stops at `max`, and the Anthropic
+ * model's starts at `low`.
+ */
+const EFFORT_REFERENCE = `| \`vendor/model-one\` | Model One | 200K | off, high, max | $1 | Go | b |
+| \`claude-sonnet-5\` | Claude Sonnet 5 | 1M | low, medium, high, xhigh, max | $1 | Pro | b |
+`
 
 /** Answer the two upstream sources, and nothing else. */
 function upstreamFetch() {
@@ -335,7 +343,7 @@ describe('normalizeConfig', () => {
       sourceURL: 'https://elsewhere.test/models',
       catalogURL: 'https://elsewhere.test/plans/goat',
       extraIds: ['private/model'],
-      includeReasoningEfforts: true,
+      effortSourceURL: 'https://elsewhere.test/models.md',
       maxContextWindow: 800_000,
       targetApiKeyEnv: 'ANOTHER_KEY',
       targetBaseURL: 'https://gateway.test/v1',
@@ -840,7 +848,7 @@ describe('the sync the bridge drives', () => {
 
     const anthropic = anthropicOp.value
     assert.equal(anthropic.api, 'anthropic-messages')
-    assert.equal('compat' in anthropic, false)
+    assert.deepEqual(anthropic.compat, { forceAdaptiveThinking: true })
     assert.deepEqual(anthropic.models.map((model) => model.id), ['claude-sonnet-5'])
   })
 
@@ -878,6 +886,7 @@ describe('the sync the bridge drives', () => {
       const { settings, route } = mount({ plan: 'pro', targetApiKeyEnv: envName })
       const payload = await withFetch(async (url) => {
         const target = String(url)
+        if (target.endsWith('models.md')) return { ok: true, status: 200, text: async () => EFFORT_REFERENCE }
         if (target.includes('/provider/v1/models')) return { ok: true, status: 200, json: async () => API_BODY }
         if (target.includes('/docs/plans/')) return { ok: true, status: 200, text: async () => goatPage(CATALOG_ENTRIES) }
         probed.push(target)
@@ -944,6 +953,7 @@ describe('the sync the bridge drives', () => {
       const sent = []
       const payload = await withFetch(async (url, init) => {
         const target = String(url)
+        if (target.endsWith('models.md')) return { ok: true, status: 200, text: async () => EFFORT_REFERENCE }
         if (target.includes('/provider/v1/models')) return { ok: true, status: 200, json: async () => API_BODY }
         if (target.includes('/docs/plans/')) return { ok: true, status: 200, text: async () => goatPage(CATALOG_ENTRIES) }
         sent.push({ url: target, headers: init?.headers ?? {}, redirect: init?.redirect })
@@ -975,6 +985,9 @@ describe('the sync the bridge drives', () => {
     let probed = 0
     const payload = await withFetch(async (url) => {
       const target = String(url)
+      // The effort reference is a public document, not a route probe: it never
+      // carries the credential, so it does not belong in this count.
+      if (target.endsWith('models.md')) return { ok: true, status: 200, text: async () => EFFORT_REFERENCE }
       if (target.includes('/provider/v1/models')) return { ok: true, status: 200, json: async () => API_BODY }
       if (target.includes('/docs/plans/')) return { ok: true, status: 200, text: async () => goatPage(CATALOG_ENTRIES) }
       probed += 1

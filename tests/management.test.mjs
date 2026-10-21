@@ -9,12 +9,27 @@ const routes = { openai: [{ id: 'a', name: 'A', input: ['text'], contextWindow: 
 describe('model selection and explicit policies', () => {
   it('filters favorites and hidden models, and applies reasoning/cap preferences', () => {
     const next = applyModelPreferences(routes, { onlyFavorites: true, maxContextWindow: 16000,
+      effortLevels: { a: ['off', 'high', 'max'] },
       preferences: { a: { favorite: true, reasoningPreset: 'deep', maxTokens: 2048 }, b: { favorite: true, hidden: true } } })
     assert.deepEqual(next.openai.map((model) => model.id), ['a'])
-    assert.deepEqual(next.openai[0].reasoningEfforts, { off: null, high: 'high' })
+    // `deep` is the model's own top rung, not the word "high": on a ladder that
+    // stops at `max`, naming `high` would quietly pick a middle rung.
+    assert.deepEqual(next.openai[0].reasoningEfforts, { off: 'off', max: 'max' })
     assert.equal(next.openai[0].contextWindow, 16000)
     assert.equal(next.openai[0].maxTokens, 2048)
     assert.equal(routes.openai[0].contextWindow, 100000)
+  })
+  it('resolves balanced against the ladder instead of naming medium', () => {
+    const pumped = applyModelPreferences(routes, {
+      preferences: { a: { reasoningPreset: 'balanced' } },
+      effortLevels: { a: ['off', 'high', 'max'] },
+    })
+    assert.deepEqual(pumped.openai[0].reasoningEfforts, { off: 'off', high: 'high' })
+
+    // No reference entry: the generated map is left exactly as the sync wrote
+    // it rather than being overwritten with a level the model may not have.
+    const untouched = applyModelPreferences(routes, { preferences: { a: { reasoningPreset: 'balanced' } } })
+    assert.deepEqual(untouched.openai[0].reasoningEfforts, { medium: 'medium' })
   })
   it('rejects invalid mappings, bad caps and unsafe ids', () => {
     for (const preference of [{ contextWindow: 1.5 }, { maxTokens: -1 }, { reasoningPreset: 'custom' },

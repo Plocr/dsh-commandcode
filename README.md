@@ -143,7 +143,11 @@ dsh web
 - 同步将当前模型字段与上次生成基线比较，保留明确的窗口、输入、输出上限、推理和兼容设置修改；模型管理中的明确覆盖优先。隐藏模型才会持续排除，直接删除生成列表中的一项仍可能在下次目录同步中重新发现。
 - 已有的凭据引用、协议和非空兼容设置通常会保留。插件会刷新自己生成的显示名，并修正 Claude 路由末尾多余的 `/v1`，避免请求变成 `/v1/v1/messages`。
 
-自定义供应商在新宿主中无法自动继承内置目录的推理能力。对目录声明支持推理的模型，默认写入 `off/medium`；`includeReasoningEfforts` 开启后提供 `off/low/medium/high`。这些值是协议惯例，未经逐模型网关验证。逐模型支持默认、关闭、均衡、深入和自定义映射，不再统一写入 `xhigh/max`。
+自定义供应商在新宿主中无法自动继承内置目录的推理能力。档位现在按**逐模型事实**写入：官方 CLI 随包发布的模型参考（`command-code-knowledge/reference/models.md`）为每个模型写明支持的档位，同步时读取该表，取不到时用内置快照。网关本身回答不了这个问题——它对认识的每个档位都回 200，并把模型没有的档位悄悄钳掉，所以只能以这张表为准。
+
+因此路由上写的是该模型自己的阶梯，例如 DeepSeek V4.1 Flash 为 `off/low/high/max`、DeepSeek V4 Pro 为 `off/high/max`、GLM-5.2 为 `high/max`、MiniMax M3.1 为 `low/medium/high/xhigh/max`；表里标 `—` 的模型不写档位（界面不显示档位选择器）。`off` 只有在模型确实支持时才写入，值就是 `off` 本身——写成 `null` 表示"不发参数"，对默认就会思考的模型等于没关。逐模型预设（默认、关闭、均衡、深入、自定义）中的「均衡 / 深入」按该模型自己的阶梯取中位与最高档，不再写死 `medium` / `high`。
+
+Anthropic 路由额外写入 `compat.forceAdaptiveThinking`：该网关的 Claude 只接受 `thinking.type: "adaptive"` + `output_config.effort`，用预算式 thinking 会在选择任何非「默认」档位时返回 400。
 
 ## 常用配置
 
@@ -158,7 +162,7 @@ dsh web
 | `pruneOtherPlans` | `true` | 手动同步后清理旧档位生成路由 |
 | `webSearch` | `false` | 使用 Command Code 提供联网搜索 |
 | `enableUsageTool` | `true` | 注册 `commandcode_usage` |
-| `includeReasoningEfforts` | `false` | 为推理模型生成档位映射 |
+| `effortSourceURL` | 官方 CLI 模型参考 | 逐模型档位表；留空使用默认地址，取不到时用内置快照 |
 | `modelPreferences` | `{}` | 按模型 ID 保存收藏、隐藏、推理预设及能力覆盖 |
 | `onlyFavorites` | `false` | 仅发布已收藏且未隐藏的模型 |
 | `alertThresholds` | 关闭；80% / 80% / $5 | 用量窗口及余额提醒阈值 |
@@ -231,6 +235,7 @@ npm test
 |---|---|
 | `lib/index.js` | 宿主装配、同步与工具注册 |
 | `lib/catalog.js` / `lib/plans.js` | 模型目录、档位与通道路由 |
+| `lib/efforts.js` | 逐模型思考档位表（官方 CLI 参考 + 内置快照） |
 | `lib/pi-ai.js` | 官方供应商配置的写入与清理 |
 | `lib/probe.js` | 通道调用诊断 |
 | `lib/recovery.js` | 上下文保护与失败恢复 |
@@ -246,6 +251,8 @@ dsh plugin --profile web add github:Plocr/dsh-commandcode
 ```
 
 Restart the profile when prompted, select your subscription tier, and configure `COMMANDCODE_API_KEY` under **Settings → Models** or in the environment. Version 0.8.0 adds sync previews, favorites/hidden models, per-model reasoning presets, explicit diagnostics, quota/model notifications and portable configuration import/export. Automatic sync is enabled by default and follows saved preferences. Diagnostics are explicit, may consume quota, and never execute returned tools. Multi-account management is deferred.
+
+Reasoning efforts are published per model, from the reference the official CLI ships (`command-code-knowledge/reference/models.md`, fetched on sync with a bundled snapshot as fallback). The gateway cannot answer this itself: it returns 200 for every level it recognizes and silently clamps the ones a model does not have, so DeepSeek V4 Pro states `off/high/max`, GLM-5.2 `high/max`, MiniMax M3.1 `low/medium/high/xhigh/max`, and models the reference marks "—" carry no effort selector at all. `off` is written only where the model accepts it, and as the `off` value rather than `null` — `null` means "send no parameter", which does nothing on a model that thinks by default. The `balanced` / `deep` presets resolve against each model's own ladder. The Anthropic route also carries `compat.forceAdaptiveThinking`, because this gateway serves Claude with `thinking.type: "adaptive"` + `output_config.effort` and rejects the budget-based shape outright.
 
 Listed on [dsh-market](https://dshmarket.com/p/Plocr/dsh-commandcode-goat/). Download the latest package and read release notes on [GitHub Releases](https://github.com/Plocr/dsh-commandcode/releases/latest).
 
