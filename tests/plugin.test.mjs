@@ -1456,3 +1456,93 @@ describe('context guard, as mounted', () => {
     assert.equal(pruner.calls, 1)
   })
 })
+
+describe('the bridge fence', () => {
+  /**
+   * A request as a browser behind a reverse proxy sends it: the deployment's
+   * declared name in `Host`, the same name in `Origin`, and the browser's own
+   * `Sec-Fetch-Site` for a same-origin fetch.
+   */
+  function proxiedRequest() {
+    return {
+      ...bridgeRequest(),
+      headers: {
+        host: 'dsh.example.org',
+        origin: 'https://dsh.example.org',
+        'sec-fetch-site': 'same-origin',
+      },
+    }
+  }
+
+  /** Mount with the host's fence stubbed, and hand back one route. */
+  function mount(connection) {
+    const settings = mockSettings()
+    const webServer = mockWebServer()
+    const { ctx } = mockContext({ settings, webServer })
+    if (connection !== undefined) ctx.connection = connection
+    apply(ctx, Config({}))
+    return {
+      ctx,
+      route: webServer.state.routes.find((entry) => entry.path === `${BRIDGE_PREFIX}/describe`),
+    }
+  }
+
+  /** Drive one route offline: a status read reaches for the catalog. */
+  async function drive(route, request) {
+    const res = bridgeResponse()
+    await withFetch(async () => { throw new TypeError('offline') }, () => route.handler(request, res))
+    return res
+  }
+
+  it('drives the route when the host fence admits the request', async () => {
+    const seen = []
+    const { route } = mount({ requestRejection: (request) => { seen.push(request.headers.host); return undefined } })
+    const res = await drive(route, proxiedRequest())
+    assert.equal(res.statusCode, 200)
+    assert.equal(JSON.parse(res.body).ok, true)
+    assert.deepEqual(seen, ['dsh.example.org'])
+  })
+
+  it('asks the fence per request rather than caching the first answer', async () => {
+    let asked = 0
+    const { route } = mount({ requestRejection: () => { asked += 1; return undefined } })
+    await drive(route, proxiedRequest())
+    await drive(route, proxiedRequest())
+    assert.equal(asked, 2)
+  })
+
+  it('passes a 403 from the fence through as an undeclared authority', async () => {
+    const { route } = mount({ requestRejection: () => 403 })
+    const res = await drive(route, proxiedRequest())
+    assert.equal(res.statusCode, 403)
+    assert.equal(JSON.parse(res.body).code, 'untrusted-request')
+  })
+
+  it('passes a 401 from the fence through as a missing browser session', async () => {
+    const { route } = mount({ requestRejection: () => 401 })
+    const res = await drive(route, proxiedRequest())
+    assert.equal(res.statusCode, 401)
+    assert.equal(JSON.parse(res.body).code, 'authentication-required')
+  })
+
+  it('keeps the loopback rule while the host has no fence yet, and honours one that arrives', async () => {
+    // The host builds its connection service after its own async init, so a
+    // plugin mounted earlier must read the service per request — capturing it
+    // at mount would pin this bridge to loopback for the life of the process.
+    const { ctx, route } = mount(undefined)
+    const before = await drive(route, proxiedRequest())
+    assert.equal(before.statusCode, 403)
+    assert.equal(JSON.parse(before.body).code, 'loopback-only')
+
+    ctx.connection = { requestRejection: () => undefined }
+    const after = await drive(route, proxiedRequest())
+    assert.equal(after.statusCode, 200)
+  })
+
+  it('falls back to loopback when the fence throws rather than failing open', async () => {
+    const { route } = mount({ requestRejection: () => { throw new Error('fence broke') } })
+    const res = await drive(route, proxiedRequest())
+    assert.equal(res.statusCode, 403)
+    assert.equal(JSON.parse(res.body).code, 'loopback-only')
+  })
+})

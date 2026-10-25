@@ -189,6 +189,16 @@ dsh web
 
 执行一次手动同步，或使用配置页的清理操作。后台同步不清理；带 `modelOverrides` 的路由会受到保护。清理后如有默认模型或子代理仍引用旧路由，请一并调整。
 
+**配置页报「this endpoint answers loopback requests only」？**
+
+配置页的用量、同步预览、诊断和清理都走宿主桥接接口。旧版本这些接口只接受 loopback 请求，因此通过 nginx 等反向代理、隧道或局域网域名打开 dsh web 时，接口返回 403，配置页只剩报错。现在这些接口采用宿主自己的 `/api` 判定：本机、启动参数 `--trusted-host` 声明的域名、监听地址，并且需要宿主的浏览器登录态。反代部署只需在启动 dsh 时声明对外域名：
+
+```sh
+dsh web --public-url https://dsh.example.org/ --trusted-host dsh.example.org
+```
+
+未声明的域名仍然拒绝（防 DNS rebinding 与跨站请求）；宿主没有该判定服务时（较旧版本），接口仍按 loopback 判断，行为与本版之前一致。
+
 **更新 dsh 后需要改插件吗？**
 
 0.8.0 的验收基线为 dsh 0.2.1-rc.2：已在隔离 Web profile 中验证加载、新界面和启停清理。旧版宿主不在本版实机验收范围内；dsh 0.1.6 用户应继续使用插件 0.4.8。真实付费模型调用与长会话效果尚未验收。
