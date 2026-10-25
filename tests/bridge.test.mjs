@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { BRIDGE_PREFIX, MAX_BODY_BYTES, isLoopbackRequest, makeBridgeRoutes, readJsonBody } from '../lib/bridge.js'
+import {
+  ADMITTED,
+  BRIDGE_PREFIX,
+  FORBIDDEN,
+  MAX_BODY_BYTES,
+  UNAUTHENTICATED,
+  admissionFor,
+  isLoopbackRequest,
+  makeBridgeRoutes,
+  readJsonBody,
+} from '../lib/bridge.js'
 
 const LLM_PI_AI = 'llm-pi-ai'
 
@@ -128,6 +138,26 @@ describe('isLoopbackRequest', () => {
   })
 })
 
+describe('admissionFor', () => {
+  /** A request as a browser behind a reverse proxy sends it. */
+  const proxied = () => request({
+    headers: { host: 'dsh.example.org', origin: 'https://dsh.example.org', 'sec-fetch-site': 'same-origin' },
+  })
+
+  it('takes the host answer when there is one', () => {
+    assert.deepEqual(admissionFor(proxied(), () => ADMITTED), { status: ADMITTED, delegated: true })
+    assert.deepEqual(admissionFor(proxied(), () => UNAUTHENTICATED), { status: UNAUTHENTICATED, delegated: true })
+    assert.deepEqual(admissionFor(proxied(), () => FORBIDDEN), { status: FORBIDDEN, delegated: true })
+  })
+
+  it('falls back to the loopback rule when the host cannot answer', () => {
+    assert.deepEqual(admissionFor(request(), undefined), { status: ADMITTED, delegated: false })
+    assert.deepEqual(admissionFor(proxied(), undefined), { status: FORBIDDEN, delegated: false })
+    // An answer this build does not recognise is no answer at all.
+    assert.deepEqual(admissionFor(proxied(), () => 'maybe'), { status: FORBIDDEN, delegated: false })
+  })
+})
+
 describe('readJsonBody', () => {
   it('reads an object, and treats an empty body as an empty object', async () => {
     assert.deepEqual(await readJsonBody(request({ body: '{"a":1}' })), { a: 1 })
@@ -163,6 +193,57 @@ describe('makeBridgeRoutes', () => {
     const res = await call(routes, '/describe', request({ socket: { remoteAddress: '10.0.0.9' } }))
     assert.equal(res.statusCode, 403)
     assert.equal(res.json.code, 'loopback-only')
+  })
+
+  it('drives the route on a deployment reached by name once the host admits it', async () => {
+    const seen = []
+    const routes = makeBridgeRoutes({ ...deps(), hostAdmission: (req) => { seen.push(req.headers.host); return ADMITTED } })
+    const res = await call(routes, '/describe', request({
+      headers: { host: 'dsh.example.org', origin: 'https://dsh.example.org', 'sec-fetch-site': 'same-origin' },
+    }))
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json.ok, true)
+    assert.deepEqual(seen, ['dsh.example.org'])
+  })
+
+  it('asks the host once per request rather than caching its first answer', async () => {
+    let asked = 0
+    const headers = { host: 'dsh.example.org', origin: 'https://dsh.example.org' }
+    const routes = makeBridgeRoutes({ ...deps(), hostAdmission: () => { asked += 1; return ADMITTED } })
+    await call(routes, '/describe', request({ headers }))
+    await call(routes, '/usage', request({ headers }))
+    assert.equal(asked, 2)
+  })
+
+  it('names the authority rather than loopback when the host refuses', async () => {
+    const routes = makeBridgeRoutes({ ...deps(), hostAdmission: () => FORBIDDEN })
+    const res = await call(routes, '/describe', request({ headers: { host: 'dsh.example.org' } }))
+    assert.equal(res.statusCode, 403)
+    assert.equal(res.json.code, 'untrusted-request')
+    assert.match(res.json.message, /--trusted-host/)
+  })
+
+  it('answers 401 when the deployment is right but the browser has no session', async () => {
+    const routes = makeBridgeRoutes({ ...deps(), hostAdmission: () => UNAUTHENTICATED })
+    const res = await call(routes, '/describe', request({ headers: { host: 'dsh.example.org' } }))
+    assert.equal(res.statusCode, 401)
+    assert.equal(res.json.code, 'authentication-required')
+  })
+
+  it('keeps the loopback wording when the host answered nothing', async () => {
+    const routes = makeBridgeRoutes({ ...deps(), hostAdmission: () => undefined })
+    assert.equal((await call(routes, '/describe', request())).statusCode, 200)
+    const res = await call(routes, '/describe', request({ headers: { host: 'dsh.example.org' } }))
+    assert.equal(res.statusCode, 403)
+    assert.equal(res.json.code, 'loopback-only')
+  })
+
+  it('runs the fence before the method check', async () => {
+    const order = []
+    const routes = makeBridgeRoutes({ ...deps(), hostAdmission: () => { order.push('fence'); return FORBIDDEN } })
+    const res = await call(routes, '/describe', request({ method: 'GET', headers: { host: 'dsh.example.org' } }))
+    assert.deepEqual(order, ['fence'])
+    assert.equal(res.statusCode, 403)
   })
 
   it('refuses anything but POST', async () => {
