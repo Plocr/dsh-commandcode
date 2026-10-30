@@ -95,13 +95,19 @@ describe('buildRouteProfile', () => {
     assert.equal(new Set(names).size, names.length)
   })
 
-  it('never writes a compat block the protocol does not offer', () => {
-    for (const route of ['anthropic', 'responses']) {
-      const profile = buildRouteProfile({ key: `commandcode-pro-${route}`, route, entries: ENTRIES, plan: 'pro' })
-      assert.equal('compat' in profile, false, `${route} must not carry compat`)
-    }
-    assert.equal(buildRouteProfile({ key: 'k', route: 'anthropic', entries: ENTRIES, plan: 'pro' }).api, 'anthropic-messages')
-    assert.equal(buildRouteProfile({ key: 'k', route: 'responses', entries: ENTRIES, plan: 'pro' }).api, 'openai-responses')
+  it('writes only the compat fields each protocol offers', () => {
+    // The Anthropic route takes exactly one switch here: this gateway serves
+    // Claude with adaptive thinking (`thinking.type: "adaptive"` +
+    // `output_config.effort`) and refuses the budget-based shape outright, so
+    // the route states it. It must not borrow the OpenAI vocabulary, which the
+    // provider plugin would reject on this protocol.
+    const anthropic = buildRouteProfile({ key: 'k', route: 'anthropic', entries: ENTRIES, plan: 'pro' })
+    assert.deepEqual(anthropic.compat, { forceAdaptiveThinking: true })
+
+    const responses = buildRouteProfile({ key: `commandcode-pro-responses`, route: 'responses', entries: ENTRIES, plan: 'pro' })
+    assert.equal('compat' in responses, false, 'responses must not carry compat')
+    assert.equal(anthropic.api, 'anthropic-messages')
+    assert.equal(responses.api, 'openai-responses')
   })
 
   it('honours a deployment override, and treats an empty one as absent', () => {

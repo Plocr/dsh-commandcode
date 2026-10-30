@@ -9,12 +9,27 @@ const routes = { openai: [{ id: 'a', name: 'A', input: ['text'], contextWindow: 
 describe('model selection and explicit policies', () => {
   it('filters favorites and hidden models, and applies reasoning/cap preferences', () => {
     const next = applyModelPreferences(routes, { onlyFavorites: true, maxContextWindow: 16000,
+      effortLevels: { a: ['off', 'high', 'max'] },
       preferences: { a: { favorite: true, reasoningPreset: 'deep', maxTokens: 2048 }, b: { favorite: true, hidden: true } } })
     assert.deepEqual(next.openai.map((model) => model.id), ['a'])
-    assert.deepEqual(next.openai[0].reasoningEfforts, { off: null, high: 'high' })
+    // `deep` is the model's own top rung, not the word "high": on a ladder that
+    // stops at `max`, naming `high` would quietly pick a middle rung.
+    assert.deepEqual(next.openai[0].reasoningEfforts, { off: 'off', max: 'max' })
     assert.equal(next.openai[0].contextWindow, 16000)
     assert.equal(next.openai[0].maxTokens, 2048)
     assert.equal(routes.openai[0].contextWindow, 100000)
+  })
+  it('resolves balanced against the ladder instead of naming medium', () => {
+    const pumped = applyModelPreferences(routes, {
+      preferences: { a: { reasoningPreset: 'balanced' } },
+      effortLevels: { a: ['off', 'high', 'max'] },
+    })
+    assert.deepEqual(pumped.openai[0].reasoningEfforts, { off: 'off', high: 'high' })
+
+    // No reference entry: the generated map is left exactly as the sync wrote
+    // it rather than being overwritten with a level the model may not have.
+    const untouched = applyModelPreferences(routes, { preferences: { a: { reasoningPreset: 'balanced' } } })
+    assert.deepEqual(untouched.openai[0].reasoningEfforts, { medium: 'medium' })
   })
   it('rejects invalid mappings, bad caps and unsafe ids', () => {
     for (const preference of [{ contextWindow: 1.5 }, { maxTokens: -1 }, { reasoningPreset: 'custom' },
@@ -81,5 +96,28 @@ describe('portable configuration transfer', () => {
     assert.throws(() => previewConfigurationImport({ format: CONFIGURATION_FORMAT, version: 2 }, {}))
     assert.throws(() => previewConfigurationImport({ format: CONFIGURATION_FORMAT, version: 1,
       configuration: { targetBaseURL: 'https://evil.invalid' } }, {}))
+  })
+})
+
+
+describe('snapshot fallback for presets', () => {
+  it('uses the bundled ladder when the live reference omits a model', () => {
+    const models = { openai: [{ id: 'deepseek/deepseek-v4-pro' }] }
+    const next = applyModelPreferences(models, { effortLevels: {}, preferences: { 'deepseek/deepseek-v4-pro': { reasoningPreset: 'deep' } } })
+    assert.deepEqual(next.openai[0].reasoningEfforts, { off: 'off', max: 'max' })
+  })
+  it('does not replace an explicit no-control entry with bundled levels', () => {
+    const models = { openai: [{ id: 'deepseek/deepseek-v4-pro' }] }
+    const next = applyModelPreferences(models, { effortLevels: { 'deepseek/deepseek-v4-pro': [] }, preferences: { 'deepseek/deepseek-v4-pro': { reasoningPreset: 'deep' } } })
+    assert.equal(next.openai[0].reasoningEfforts, undefined)
+  })
+})
+
+
+describe('legacy effort-control preference', () => {
+  it('keeps disabling controls compatible without claiming an off wire value', () => {
+    const next = applyModelPreferences(routes, { preferences: { a: { reasoningPreset: 'off' } } })
+    assert.equal(next.openai[0].reasoningEfforts, false)
+    assert.deepEqual(routes.openai[0].reasoningEfforts, { medium: 'medium' })
   })
 })
