@@ -1,6 +1,6 @@
 {
   "name": "dsh-commandcode-goat",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Command Code for DSH｜订阅接入：同步 Go / GOAT / Pro / Max 模型，管理推理预设、用量提醒与联网搜索。",
   "icon": "./assets/logo-native.png",
   "type": "module",

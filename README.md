@@ -220,6 +220,12 @@ dsh web --public-url https://dsh.example.org/ --trusted-host dsh.example.org
 
 不保证。插件依赖宿主提供的计量、剪枝和压缩服务，只对自己生成的路由生效。默认保留上游窗口声明；自定义压缩策略、网关限制和模型行为都会影响结果。
 
+## v0.8.2 更新
+
+- 反代 / 隧道 / 局域网域名部署下配置页接口全部 403 的修复（#2、PR #3）：桥接改用宿主自己的 `/api` 判定，反代只需 `--trusted-host` 声明域名。
+- 档位与用量的窗口上限、月度池、余额、低余额提醒和 `commandcode_usage` 输出改为 credits（额度点），只在月费与本期成本保留 `$`（#4）。
+- 新增官方模型表的美元折算展示：GOAT 70 额度点 ≈ $10–$100（因模型而异），标注抓取日期，可用 `scripts/build-dollar-tables.mjs` 刷新。
+
 ## v0.8.1 更新
 
 - 统一配置页各标签宽度，改善窄窗口布局；补充插件图标及中英文名称、简介。
@@ -273,7 +279,7 @@ npm test
 dsh plugin --profile web add github:Plocr/dsh-commandcode
 ```
 
-Restart the profile when prompted, select your subscription tier, and configure `COMMANDCODE_API_KEY` under **Settings → Models** or in the environment. Version 0.8.1 improves the settings layout and usage display, adds plugin artwork and localized metadata, and protects customized providers and concurrent edits during sync. Version 0.8.0 introduced sync previews, per-model preferences, explicit diagnostics, notifications and portable settings. Automatic sync follows saved preferences. Diagnostics are explicit, may consume quota, and never execute returned tools. Multi-account management is deferred.
+Restart the profile when prompted, select your subscription tier, and configure `COMMANDCODE_API_KEY` under **Settings → Models** or in the environment. Version 0.8.2 lets deployments behind a reverse proxy use the settings card once the public host is declared with `--trusted-host`, states credit figures as credits instead of dollars, and quotes the vendor's official dollar value of those credits with its capture date. Version 0.8.1 improves the settings layout and usage display, adds plugin artwork and localized metadata, and protects customized providers and concurrent edits during sync. Version 0.8.0 introduced sync previews, per-model preferences, explicit diagnostics, notifications and portable settings. Automatic sync follows saved preferences. Diagnostics are explicit, may consume quota, and never execute returned tools. Multi-account management is deferred.
 
 Listed on [dsh-market](https://dshmarket.com/p/Plocr/dsh-commandcode-goat/). Download the latest package and read release notes on [GitHub Releases](https://github.com/Plocr/dsh-commandcode/releases/latest).
 
