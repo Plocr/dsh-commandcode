@@ -6,6 +6,7 @@ import {
   creditLines,
   describeUsage,
   fetchUsageReport,
+  formatCredits,
   formatDollars,
   formatDuration,
   localStamp,
@@ -514,8 +515,10 @@ describe('presentation helpers', () => {
     assert.deepEqual(creditLines({ monthlyCredits: 0, purchasedCredits: 0, freeCredits: 0 }), [])
     const lines = creditLines({ monthlyCredits: 10, purchasedCredits: 0, freeCredits: 0, fiveHour: { used: 1, cap: 2, exceeded: false } })
     assert.equal(lines.length, 2)
-    // Dollars, not request counts: the caps are round money limits.
-    assert.match(lines[1], /5h window: \$1 used of \$2/)
+    // Credits, not dollars: the account API counts these in credits, and the
+    // balance line says so rather than borrowing a `$` mark.
+    assert.equal(lines[0], 'balance: 10 credits monthly, 0 credits purchased, 0 credits free')
+    assert.match(lines[1], /5h window: 1 credit used of 2 credits/)
   })
 
   it('writes a summary a model can read', () => {
@@ -530,6 +533,10 @@ describe('presentation helpers', () => {
     assert.match(text, /plan: GOAT \(active\)/)
     assert.match(text, /requests: 40 in this period, 38 completed, 2 failed, success rate 95%/)
     assert.match(text, /\$1\.2345 over the billing-period/)
+    // The credit figures the model reads are credits, not dollars: only the
+    // dollar cost carries a `$`.
+    assert.match(text, /balance: 10 credits monthly/)
+    assert.match(text, /5h window: 1 credit used of 2 credits/)
     // both halves named, and the total the service states
     assert.match(text, /tokens: 120 total \(100 input, 20 output\)/)
   })
@@ -544,7 +551,7 @@ describe('presentation helpers', () => {
   it('leads a window line with its countdown and states the instant absolutely', () => {
     const resetAt = Date.now() + 5 * 3600 * 1000 + 30 * 1000
     const [line] = creditLines({ monthlyCredits: 0, purchasedCredits: 0, freeCredits: 0, fiveHour: { used: 1, cap: 2, exceeded: false, resetAt } })
-    assert.match(line, /5h window: \$1 used of \$2, resets in 5h 0m \(/)
+    assert.match(line, /5h window: 1 credit used of 2 credits, resets in 5h 0m \(/)
     // The countdown alone cannot be checked; the local stamp is the same
     // instant stated so a reader can hold it against a clock.
     assert.ok(line.includes(localStamp(resetAt)), line)
@@ -559,9 +566,14 @@ describe('presentation helpers', () => {
     assert.equal(Date.parse(stamp.replace(' ', 'T').replace(' ', '')), Math.floor(ms / 1000) * 1000)
   })
 
-  it('keeps a fraction of a cent visible instead of rounding it to $0.00', () => {
+  it('keeps a fraction of a credit visible instead of rounding it to 0.00', () => {
     const [line] = creditLines({ monthlyCredits: 0, purchasedCredits: 0, freeCredits: 0, fiveHour: { used: 0.004167961, cap: 14, exceeded: false } })
-    assert.match(line, /5h window: \$0\.004 used of \$14/)
+    assert.match(line, /5h window: 0\.004 credits used of 14 credits/)
+    // The credit figure shares the dollar figure's precision, without the mark.
+    assert.equal(formatCredits(14), '14')
+    assert.equal(formatCredits(2.652740314), '2.65')
+    assert.equal(formatCredits(0.0012), '0.001')
+    // Dollars are still dollars: the period cost keeps its `$`.
     assert.equal(formatDollars(14), '$14')
     assert.equal(formatDollars(2.652740314), '$2.65')
   })
@@ -570,9 +582,9 @@ describe('presentation helpers', () => {
     // The card refuses to draw such a window; the tool used to print
     // "$12 used of $0", which asserts a limit the vendor never stated.
     const [line] = creditLines({ fiveHour: { used: 12, cap: 0, exceeded: true } })
-    assert.match(line, /5h window: \$12 used, no cap stated/)
+    assert.match(line, /5h window: 12 credits used, no cap stated/)
     assert.match(line, /exceeded/)
-    assert.doesNotMatch(line, /of \$0\b/)
+    assert.doesNotMatch(line, /of 0 credit/)
   })
 
   it('describes a report assembled elsewhere instead of throwing on it', () => {

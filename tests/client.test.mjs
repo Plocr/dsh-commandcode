@@ -978,7 +978,7 @@ describe('rendering', () => {
     assert.match(text, /创建 \/ 更新/)
     assert.match(text, /账户用量/)
     assert.match(text, /ada/)
-    assert.match(text, /已用 \$12 \/ 上限 \$60/)
+    assert.match(text, /已用 12 额度点 \/ 上限 60 额度点/)
     assert.match(text, /用本账户提供 web_search/)
     assert.match(text, /原始响应/)
   })
@@ -1030,7 +1030,9 @@ describe('rendering', () => {
       assert.match(text, /Command \| goat/)
       // Its documentation link and its default quota come with it.
       assert.deepEqual(findAll(tiers[0], 'a').map((node) => node.props.href), ['https://commandcode.ai/docs/plans/goat'])
-      assert.match(text, /\$70/)
+      // The monthly pool is credits, not dollars: 70 of them, never `$70`.
+      assert.match(text, /70 额度点/)
+      assert.doesNotMatch(text, /\$70/)
       // It sits in the section whose picker selected it, not in the folded
       // provider list.
       const plan = findByClass(tree, 'ccg-card')[0]
@@ -1066,7 +1068,7 @@ describe('rendering', () => {
     assert.match(max, /Max 10×/)
     assert.match(max, /Max 20×/)
     assert.match(max, /\$200 \/ 月/)
-    assert.match(max, /高级额度 \$200/)
+    assert.match(max, /高级额度 200 额度点/)
   })
 
   it('shows one protocol at a time, on the tab the reader selected', async () => {
@@ -1167,11 +1169,13 @@ describe('rendering', () => {
     const text = textOf(component({ ...face })).join(' ')
 
     // The figures behind the price of the tier that is in use, each under its
-    // own name, and none of the three the reader did not choose.
+    // own name, and none of the three the reader did not choose. The caps are
+    // credits — the vendor sells GOAT as 14 / 35 / 70 credits, not dollars —
+    // so they carry the credit unit while the price keeps its `$`.
     assert.match(text, /月费 \$10 \/ 月/)
-    assert.match(text, /5 小时窗口 \$14/)
-    assert.match(text, /每周窗口 \$35/)
-    assert.match(text, /月度额度 \$70/)
+    assert.match(text, /5 小时窗口 14 额度点/)
+    assert.match(text, /每周窗口 35 额度点/)
+    assert.match(text, /月度额度 70 额度点/)
     // Free models are counted here, and marked individually on their own names
     // in the model picker — the count is what the card can state without
     // listing them.
@@ -1186,7 +1190,7 @@ describe('rendering', () => {
     // A tier nobody has synced yet says so instead of printing a zero.
     face.actions.edit('plan', 'max')
     assert.match(textOf(component({ ...face })).join(' '), /这档有多少模型，要等第一次同步读过目录才知道。/)
-    assert.match(textOf(component({ ...face })).join(' '), /高级额度 \$100/)
+    assert.match(textOf(component({ ...face })).join(' '), /高级额度 100 额度点/)
 
     // The citation is what makes the quota checkable, and it belongs to the
     // tier on screen rather than to all four.
@@ -1359,17 +1363,18 @@ describe('rendering', () => {
     assert.match(text, /20%/)
     assert.match(text, /10%/)
     // the figures stay beside the share, rounded rather than at the service's
-    // full precision
-    assert.match(text, /\$69\.99/)
+    // full precision — and stated in credits, which is the unit the account
+    // API reports them in
+    assert.match(text, /69\.99 额度点/)
     assert.doesNotMatch(text, /69\.985238253/)
-    assert.match(text, /已用 \$12 \/ 上限 \$60/)
+    assert.match(text, /已用 12 额度点 \/ 上限 60 额度点/)
 
     // Reading order inside one meter: label, its share, then the figures — and
-    // the figures are money, because these caps are a fifth and a half of the
-    // monthly grant rather than counters of anything.
+    // the figures are credits, because these caps are a fifth and a half of the
+    // monthly credit grant rather than dollars or counters of requests.
     assert.ok(text.indexOf('5 小时窗口') < text.indexOf('20%'))
-    assert.ok(text.indexOf('20%') < text.indexOf('已用 $12 / 上限 $60'))
-    assert.match(text, /可用 \$69\.99 · 本期已用 \$0\.01/)
+    assert.ok(text.indexOf('20%') < text.indexOf('已用 12 额度点 / 上限 60 额度点'))
+    assert.match(text, /可用 69\.99 额度点 · 本期已用 0\.01 额度点/)
   })
 
   it('does not invent a monthly percentage when the account data is incomplete', async () => {
@@ -2215,15 +2220,22 @@ describe('pure helpers', () => {
     assert.equal(formatPercent(percentValue(80, 60)), '100%')
     assert.equal(percentValue(1, 0), 0)
     // the figures beside a quota are trimmed the same way
-    // A quota figure is money: whole dollars stay whole, fractions take two
+    // A dollar figure is money: whole dollars stay whole, fractions take two
     // places, and something too small for two keeps a third rather than reading
-    // as zero.
-    const { formatDollars } = exports.__internals
+    // as zero. A credit figure takes the same precision without the mark,
+    // because the caps are credits — `$70` on screen claimed a currency the
+    // vendor never quoted for them.
+    const { formatDollars, formatCredits } = exports.__internals
     assert.equal(formatDollars(0.211532321), '$0.21')
     assert.equal(formatDollars(14), '$14')
     assert.equal(formatDollars(66.572462096), '$66.57')
     assert.equal(formatDollars(0.0012), '$0.001')
     assert.equal(formatDollars(undefined), '$0')
+    assert.equal(formatCredits(0.211532321), '0.21')
+    assert.equal(formatCredits(14), '14')
+    assert.equal(formatCredits(66.572462096), '66.57')
+    assert.equal(formatCredits(0.0012), '0.001')
+    assert.equal(formatCredits(undefined), '0')
   })
 })
 
@@ -2284,22 +2296,43 @@ describe('copy', () => {
     }
   })
 
+  it('states every quota cap in credits, in both languages, and only the price in dollars', async () => {
+    const { dictionaries, internals } = await mountCopy()
+    const [zh, en] = [dictionaries[NS].zh, dictionaries[NS].en]
+    // The unit is dictionary copy, so it reads natively in each language.
+    assert.equal(zh.credits(70), '70 额度点')
+    assert.equal(en.credits(70), '70 credits')
+    const variant = { label: 'GOAT', price: 10, fiveHour: 14, weekly: 35, monthly: 70 }
+    // One line, priced in dollars and capped in credits: `$14` on a cap would
+    // restate the unit the vendor never quoted for it.
+    assert.equal(
+      internals.quotaLine(zh, variant),
+      'GOAT · 月费 $10 / 月 · 5 小时窗口 14 额度点 · 每周窗口 35 额度点 · 月度额度 70 额度点',
+    )
+    assert.equal(
+      internals.quotaLine(en, variant),
+      'GOAT · Monthly price $10 / month · 5-hour window 14 credits · Weekly window 35 credits · Monthly pool 70 credits',
+    )
+  })
+
   it('assembles one tier size per line, with the figures the vendor states', async () => {
     const { dictionaries, internals } = await mountCopy()
     const t = dictionaries[NS].zh
-    // Max is sold as two sizes: one line each, both on screen.
+    // Max is sold as two sizes: one line each, both on screen. The price is
+    // money; every cap after it is credits, which is how the vendor counts
+    // them (GOAT is 14 / 35 / 70 credits), so only the price keeps its `$`.
     assert.equal(
       internals.quotaLine(t, { label: 'Max 10×', price: 100, fiveHour: 45, weekly: 90, monthly: 150, premiumMonthly: 100 }),
-      'Max 10× · 月费 $100 / 月 · 5 小时窗口 $45 · 每周窗口 $90 · 月度额度 $150 · 高级额度 $100',
+      'Max 10× · 月费 $100 / 月 · 5 小时窗口 45 额度点 · 每周窗口 90 额度点 · 月度额度 150 额度点 · 高级额度 100 额度点',
     )
     assert.equal(
       internals.quotaLine(t, { label: 'Max 20×', price: 200, fiveHour: 90, weekly: 180, monthly: 300, premiumMonthly: 200 }),
-      'Max 20× · 月费 $200 / 月 · 5 小时窗口 $90 · 每周窗口 $180 · 月度额度 $300 · 高级额度 $200',
+      'Max 20× · 月费 $200 / 月 · 5 小时窗口 90 额度点 · 每周窗口 180 额度点 · 月度额度 300 额度点 · 高级额度 200 额度点',
     )
     // A tier with no premium pool simply does not mention one.
     assert.equal(
       internals.quotaLine(t, { label: 'GOAT', price: 10, fiveHour: 14, weekly: 35, monthly: 70 }),
-      'GOAT · 月费 $10 / 月 · 5 小时窗口 $14 · 每周窗口 $35 · 月度额度 $70',
+      'GOAT · 月费 $10 / 月 · 5 小时窗口 14 额度点 · 每周窗口 35 额度点 · 月度额度 70 额度点',
     )
     assert.equal(internals.quotaLine(t, {}), '')
   })
