@@ -302,7 +302,15 @@ describe('makeBridgeRoutes', () => {
     const goat = value.tiers.find((tier) => tier.plan === 'goat')
     assert.equal(goat.provider, 'Command | goat')
     assert.equal(goat.docURL, 'https://commandcode.ai/docs/plans/goat')
-    assert.deepEqual(goat.variants, [{ label: 'GOAT', price: 10, fiveHour: 14, weekly: 35, monthly: 70 }])
+    const { dollar, ...goatQuota } = goat.variants[0]
+    assert.deepEqual(goatQuota, { label: 'GOAT', price: 10, fiveHour: 14, weekly: 35, monthly: 70 })
+    // The quota in credits travels beside the vendor's own dollar figures for
+    // the same pool: a range across the official model table, quoted with the
+    // date it was captured so a reader can judge how fresh it is.
+    assert.equal(dollar.pool, 70)
+    assert.ok(dollar.min > 0 && dollar.max >= dollar.min, 'a positive, ordered range')
+    assert.match(dollar.capturedAt, /^\d{4}-\d{2}-\d{2}$/)
+    assert.match(dollar.source, /^https:\/\/commandcode\.ai\/docs\/plans\//)
     assert.equal(goat.models, 63)
     assert.equal(goat.live, 62)
     assert.equal(goat.selected, true)
@@ -310,9 +318,11 @@ describe('makeBridgeRoutes', () => {
     assert.equal(goat.source, 'personal')
     assert.deepEqual(goat.routes, ['openai'])
     // Max is sold in two sizes and states both, because nothing in the models
-    // endpoint tells them apart.
+    // endpoint tells them apart. Each size quotes its own column of the
+    // vendor's table: 150 credits and 300 credits are priced separately.
     const max = value.tiers.find((tier) => tier.plan === 'max')
     assert.deepEqual(max.variants.map((variant) => variant.label), ['Max 10×', 'Max 20×'])
+    assert.deepEqual(max.variants.map((variant) => variant.dollar?.pool), [150, 300])
     assert.equal(max.selected, false)
     assert.equal(max.subscribed, false)
     assert.equal(max.source, null)
@@ -427,5 +437,29 @@ describe('makeBridgeRoutes', () => {
     await call(routes, '/usage', request({ body: '{"baseURL":"   "}' }))
     await call(routes, '/usage', request())
     assert.deepEqual(seen, ['https://proxy.test', undefined, undefined])
+  })
+
+  it('attaches the vendor dollar table to the usage report', async () => {
+    const routes = makeBridgeRoutes(deps())
+    const value = (await call(routes, '/usage', request())).json.value
+    // The report names no subscription, so the table follows the tier this
+    // plugin writes — the pool the card is about to convert against.
+    assert.equal(value.plan.name, 'GOAT')
+    assert.equal(value.dollar.pool, 70)
+    assert.ok(value.dollar.min > 0 && value.dollar.max >= value.dollar.min)
+    assert.match(value.dollar.capturedAt, /^\d{4}-\d{2}-\d{2}$/)
+    assert.match(value.dollar.source, /^https:\/\/commandcode\.ai\/docs\/plans\//)
+  })
+
+  it('prices the usage report against the account plan when the report states one', async () => {
+    const routes = makeBridgeRoutes({ ...deps(), usage: async () => ({ subscription: { plan: 'pro' } }) })
+    const value = (await call(routes, '/usage', request())).json.value
+    assert.equal(value.dollar.pool, 80)
+  })
+
+  it('leaves the report untouched when this build has no table to quote', async () => {
+    const routes = makeBridgeRoutes({ ...deps(), config: () => ({ plan: 'enterprise' }) })
+    const value = (await call(routes, '/usage', request())).json.value
+    assert.deepEqual(value, { failures: [], plan: { name: 'GOAT' } })
   })
 })

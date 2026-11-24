@@ -541,6 +541,17 @@ describe('presentation helpers', () => {
     assert.match(text, /tokens: 120 total \(100 input, 20 output\)/)
   })
 
+  it('quotes the vendor dollar table with its capture date when the caller attached it', () => {
+    const text = describeUsage({ dollar: { pool: 70, min: 10, max: 100, capturedAt: '2026-11-24' } })
+    assert.match(text, /monthly credits: \$10–\$100 on the official model table, depending on the model \(captured 2026-11-24\)/)
+    // No table is no line: a conversion the reader cannot date is a number
+    // they cannot check, and an absent or malformed one is not a figure to
+    // invent on the vendor's behalf.
+    assert.doesNotMatch(describeUsage({}), /monthly credits:/)
+    assert.doesNotMatch(describeUsage({ dollar: { min: Number.NaN, max: 100, pool: 70, capturedAt: '2026-11-24' } }), /monthly credits:/)
+    assert.doesNotMatch(describeUsage({ dollar: { min: 10, max: 100, pool: 0, capturedAt: '2026-11-24' } }), /monthly credits:/)
+  })
+
   it('omits the failure clause and the total when there is nothing to say', () => {
     const text = describeUsage({ usage: { totalCount: 5, completedCount: 5, failedCount: 0, successRate: 1, totalCost: 0, totalTokens: 40, totalTokensIn: 30, totalTokensOut: 10, periodBasis: 'billing-period' } })
     assert.match(text, /requests: 5 in this period, 5 completed, success rate 100%/)

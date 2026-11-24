@@ -1149,8 +1149,12 @@ describe('the sync the bridge drives', () => {
     assert.equal(goat.provider, 'Command | goat')
     // Every field the browser half reads off a tier row, straight from the real
     // host: a tier card without these renders with no quota, no link and no tag,
-    // and degrades silently rather than failing loudly.
-    assert.deepEqual(goat.variants, [{ label: 'GOAT', price: 10, fiveHour: 14, weekly: 35, monthly: 70 }])
+    // and degrades silently rather than failing loudly. The dollar figures the
+    // vendor publishes for this pool ride along on the same variant.
+    const { dollar, ...goatQuota } = goat.variants[0]
+    assert.deepEqual(goatQuota, { label: 'GOAT', price: 10, fiveHour: 14, weekly: 35, monthly: 70 })
+    assert.equal(dollar.pool, 70)
+    assert.match(dollar.capturedAt, /^\d{4}-\d{2}-\d{2}$/)
     assert.equal(goat.docURL, 'https://commandcode.ai/docs/plans/goat')
     assert.equal(goat.title, 'GOAT')
     assert.equal(goat.subscribed, false)

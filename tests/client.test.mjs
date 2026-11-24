@@ -1377,6 +1377,30 @@ describe('rendering', () => {
     assert.match(text, /可用 69\.99 额度点 · 本期已用 0\.01 额度点/)
   })
 
+  it('quotes the vendor dollar table beside the credits, with its capture date', async () => {
+    const dollar = { capturedAt: '2026-11-24', source: 'https://commandcode.ai/docs/plans/goat', pool: 70, min: 10, max: 100 }
+    const describe = {
+      ...DESCRIBE,
+      tiers: TIERS.map((tier) => tier.plan === 'goat'
+        ? { ...tier, variants: tier.variants.map((variant) => ({ ...variant, dollar })) }
+        : tier),
+    }
+    const { component, face } = settingsTab(await mount({ '/describe': describe, '/usage': { ...USAGE, dollar } }))
+    const text = textOf(component({ ...face })).join(' ')
+    // Credits stay the unit on the tier line; the vendor's dollars come as a
+    // range with the date the table was captured — which model the credits
+    // land on is the reader's choice, and a conversion nobody can date is a
+    // number nobody can check.
+    assert.match(text, /月度额度按官方模型表折算 \$10–\$100（因模型而异）· 2026-11-24 抓取/)
+    // The usage balance keeps its credit unit too; the dollar range rides
+    // beside it, scaled to what is left of the pool (69.985238253 of 70).
+    assert.match(text, /可用 69\.99 额度点 · 本期已用 0\.01 额度点 · ≈ \$10\.00–\$99\.98/)
+
+    // Without a table the card states nothing rather than guessing one.
+    const plain = settingsTab(await mount({ '/describe': DESCRIBE, '/usage': USAGE }))
+    assert.doesNotMatch(textOf(plain.component({ ...plain.face })).join(' '), /官方模型表/)
+  })
+
   it('does not invent a monthly percentage when the account data is incomplete', async () => {
     for (const report of [
       { ...USAGE, credits: { ...USAGE.credits, monthlyCreditsKnown: false } },

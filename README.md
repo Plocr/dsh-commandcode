@@ -208,6 +208,8 @@ dsh web --public-url https://dsh.example.org/ --trusted-host dsh.example.org
 
 窗口上限与月度余额的单位是 credits，不是美元：账户接口返回 `fiveHour.cap = 14`、`weekly.cap = 35`，`monthlyCredits` 加同一时刻的周窗口已用正好等于 70，而同期 `totalCost` 只有两美元多。旧版把这些数字渲染成 `$14 / $35 / $70`，读者对照官方模型表里自己模型的美元折算额（如 `deepseek-v4.1-flash … $80`）会误以为额度缩水。现在窗口、月度池、购买与赠送余额、低余额提醒以及 `commandcode_usage` 工具输出都标注为 credits（中文「额度点」），只有真正的美元字段（月费、本期成本 `totalCost`）继续带 `$`。
 
+卡片同时按官方套餐页的 `Monthly credits` 模型表给出这些额度的美元折算区间（GOAT 的 70 额度点 ≈ $10–$100，随模型而异），并标注表格的抓取日期；用量面板的月度余额按剩余额度同比折算。表格随 `node scripts/build-dollar-tables.mjs` 重新抓取，抓取日期一并更新。
+
 **更新 dsh 后需要改插件吗？**
 
 0.8.0 的验收基线为 dsh 0.2.1-rc.2：已在隔离 Web profile 中验证加载、新界面和启停清理。旧版宿主不在本版实机验收范围内；dsh 0.1.6 用户应继续使用插件 0.4.8。真实付费模型调用与长会话效果尚未验收。
